@@ -4,46 +4,51 @@ import datetime
 import pandas as pd
 import ta
 import aiohttp
+import pytz
 from tinkoff.invest import Client, CandleInterval
 from tinkoff.invest.utils import now
 from aiogram import Bot
-import pytz
 
 # 🔐 Токены
-TINKOFF_TOKEN = "t.d---"
-TELEGRAM_TOKEN = ":-Io-"
+TINKOFF_TOKEN = ""
+TELEGRAM_TOKEN = ""
 CHAT_ID = -
 
-# 📈 FIGI
-FIGIS = {
-    "TSLA": "BBG000N9MNX3",
-    "YNDX": "BBG006L8G4H1",
-    "VTBR": "BBG004730N88"
-}
+# 🔍 Тикеры
+TICKERS = ["DDD", "AMD", "APA", "AFRM", "AA", "BABA", "GOOGL", "AMZN", "AAL", "APP", "AAPL", "AMAT", "BA", "BYND", "BILI", "AI", "COF", "CAT", "CHGG", "CHWY", "CNK", "CLF", "CCL", "CSCO", "CLSK", "NET", "COIN", "COTY", "CPNG", "DHI", "DLO", "DDOG", "PLAY", "DVN", "APPS","DOCU", "DASH", "YDEX", "U", "TSLA"]
 
-# ⏱ Интервалы
+# Интервалы
 INTERVALS = {
     "1m": CandleInterval.CANDLE_INTERVAL_1_MIN,
     "5m": CandleInterval.CANDLE_INTERVAL_5_MIN,
 }
 
 SLEEP_SECONDS = 60
+RSI_REPORT_INTERVAL_MINUTES = 60
 
-# ⚙️ Логгирование
+# Логгирование
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
+
+def get_figi_by_ticker(client: Client, ticker: str) -> str | None:
+    try:
+        response = client.instruments.find_instrument(query=ticker)
+        for instr in response.instruments:
+            if instr.ticker == ticker:
+                return instr.figi
+    except Exception as e:
+        logger.warning(f"Ошибка при поиске для {ticker}: {e}")
+    return None
 
 
 def get_candles_sync(client: Client, figi: str, interval: CandleInterval) -> pd.DataFrame:
     now_time = now()
     delta = datetime.timedelta(minutes=50 if interval == CandleInterval.CANDLE_INTERVAL_1_MIN else 250)
-    from_time = now_time - delta
-    to_time = now_time
-
     candles = client.market_data.get_candles(
         figi=figi,
-        from_=from_time,
-        to=to_time,
+        from_=now_time - delta,
+        to=now_time,
         interval=interval,
     ).candles
 
@@ -75,66 +80,97 @@ def analyze_macd_rsi(df: pd.DataFrame) -> dict | None:
     df["macd_signal"] = macd_calc.macd_signal()
     df["macd_hist"] = macd_calc.macd_diff()
 
-    latest_idx = df.index[-1]
-    prev_idx = df.index[-2]
+    latest = df.iloc[-1]
+    previous = df.iloc[-2]
+    ny_time = df.index[-1].astimezone(pytz.timezone("America/New_York")).strftime("%Y-%m-%d %H:%M:%S")
 
     signal = ""
     macd_cross = False
-    if df["macd"][prev_idx] < df["macd_signal"][prev_idx] and df["macd"][latest_idx] > df["macd_signal"][latest_idx]:
+    if previous["macd"] < previous["macd_signal"] and latest["macd"] > latest["macd_signal"]:
         signal = "💚 *MACD пересечение вверх (BUY)*"
         macd_cross = True
-    elif df["macd"][prev_idx] > df["macd_signal"][prev_idx] and df["macd"][latest_idx] < df["macd_signal"][latest_idx]:
+    elif previous["macd"] > previous["macd_signal"] and latest["macd"] < latest["macd_signal"]:
         signal = "❤️ *MACD пересечение вниз (SELL)*"
         macd_cross = True
-
-    latest_row = df.loc[latest_idx]
-    ny_time = latest_idx.astimezone(pytz.timezone("America/New_York")).strftime("%Y-%m-%d %H:%M:%S")
 
     return {
         "signal": signal,
         "macd_cross": macd_cross,
-        "rsi": round(latest_row["rsi"], 2),
-        "macd": round(latest_row["macd"], 4),
-        "macd_signal": round(latest_row["macd_signal"], 4),
-        "macd_hist": round(latest_row["macd_hist"], 4),
-        "close": round(latest_row["close"], 2),
-        "high": round(latest_row["high"], 2),
-        "low": round(latest_row["low"], 2),
+        "rsi": round(latest["rsi"], 2),
+        "macd": round(latest["macd"], 4),
+        "macd_signal": round(latest["macd_signal"], 4),
+        "macd_hist": round(latest["macd_hist"], 4),
+        "close": round(latest["close"], 2),
+        "high": round(latest["high"], 2),
+        "low": round(latest["low"], 2),
         "time": ny_time
     }
 
-
 async def main_loop():
     bot = Bot(token=TELEGRAM_TOKEN)
+    last_report_sent = False  # Флаг для отправки полного отчёта только один раз при старте
+
     async with aiohttp.ClientSession():
         with Client(TINKOFF_TOKEN) as client:
+            figis = {}
+            for ticker in TICKERS:
+                figi = get_figi_by_ticker(client, ticker)
+                if figi:
+                    figis[ticker] = figi
+                else:
+                    logger.warning(f"FIGI не найден для {ticker}")
+
             while True:
                 try:
-                    for name, figi in FIGIS.items():
+                    ticker_texts = []
+
+                    for ticker, figi in figis.items():
+                        texts_per_ticker = []
                         for interval_name, interval in INTERVALS.items():
                             df = await asyncio.to_thread(get_candles_sync, client, figi, interval)
                             if df.empty:
-                                logger.warning(f"⛔ Нет данных по {name} ({interval_name})")
+                                logger.warning(f"Нет данных по {ticker} ({interval_name})")
                                 continue
 
-                            data = analyze_macd_rsi(df)
-                            if not data:
+                            result = analyze_macd_rsi(df)
+                            if not result:
                                 continue
 
-                            # Всегда шлём параметры RSI и MACD
-                            text = (
-                                f"📊 *{name}* [{interval_name}]\n"
-                                f"🕒 NY Time: {data['time']}\n"
-                                f"💰 Цена: {data['close']}\n"
-                                f"🔺 High: {data['high']}, 🔻 Low: {data['low']}\n"
-                                f"📈 RSI: {data['rsi']}\n"
-                                f"📊 MACD: {data['macd']} | Signal: {data['macd_signal']} | Hist: {data['macd_hist']}"
-                            )
-                            await bot.send_message(chat_id=CHAT_ID, text=text, parse_mode="Markdown")
+                            # При первом запуске собираем полный отчёт
+                            if not last_report_sent:
+                                part_text = (
+                                    f"📊 [{interval_name}]\n"
+                                    f"🕒 NY Time: {result['time']}\n"
+                                    f"💰 Цена: {result['close']}\n"
+                                    f"🔺 High: {result['high']}, 🔻 Low: {result['low']}\n"
+                                    f"📈 RSI: {result['rsi']}\n"
+                                    f"📊 MACD: {result['macd']} | Signal: {result['macd_signal']} | Hist: {result['macd_hist']}\n"
+                                )
+                                texts_per_ticker.append(part_text)
 
-                            # Отдельное сообщение при пересечении MACD
-                            if data["macd_cross"]:
-                                await bot.send_message(chat_id=CHAT_ID, text=f"⚠️ *{name}* [{interval_name}] {data['signal']} по цене {data['close']}", parse_mode="Markdown")
+                            # Каждую минуту отправляем только сигналы пересечений MACD при условии RSI
+                            if last_report_sent and result["macd_cross"]:
+                                if (result["signal"].find("BUY") != -1 and result["rsi"] < 40) or \
+                                   (result["signal"].find("SELL") != -1 and result["rsi"] > 60):
+                                    alert_text = f"⚠️ *{ticker} ({figi})* [{interval_name}] {result['signal']} по цене {result['close']} с RSI={result['rsi']}"
+                                    await bot.send_message(chat_id=CHAT_ID, text=alert_text, parse_mode="Markdown")
+
+                        if texts_per_ticker:
+                            ticker_texts.append(f"*{ticker} ({figi})*\n\n" + "\n".join(texts_per_ticker))
+
+                    # Если отчёт не отправлен — отправляем его одним или несколькими сообщениями
+                    if not last_report_sent:
+                        MAX_MSG_LENGTH = 4000
+                        GROUP_SIZE = 5
+                        for i in range(0, len(ticker_texts), GROUP_SIZE):
+                            chunk = ticker_texts[i:i + GROUP_SIZE]
+                            message_text = "\n\n".join(chunk)
+
+                            if len(message_text) > MAX_MSG_LENGTH:
+                                message_text = message_text[:MAX_MSG_LENGTH - 20] + "\n… (сообщение обрезано)"
+
+                            await bot.send_message(chat_id=CHAT_ID, text=message_text, parse_mode="Markdown")
+                        last_report_sent = True
 
                     logger.info("Цикл завершён. Ждём следующую минуту.")
                     await asyncio.sleep(SLEEP_SECONDS)
