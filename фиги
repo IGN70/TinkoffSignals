@@ -1,0 +1,33 @@
+from tinkoff.invest import Client
+import pandas as pd
+
+TINKOFF_TOKEN = "твой_токен_от_API"
+TICKERS = ["TSLA", "YNDX", "VTBR", "UNITY"]
+
+def get_figis_by_tickers(tickers):
+    results = []
+    with Client(TINKOFF_TOKEN) as client:
+        for ticker in tickers:
+            try:
+                instruments = client.instruments.find_instrument(query=ticker).instruments
+                if instruments:
+                    inst = instruments[0]
+                    results.append({
+                        'ticker': ticker,
+                        'figi': inst.figi,
+                        'name': inst.name,
+                        # 'type': getattr(inst, 'type', 'Unknown'),  # не используем, чтобы не падало
+                    })
+                else:
+                    print(f"Не найден инструмент для тикера {ticker}")
+            except Exception as e:
+                print(f"Ошибка при поиске для {ticker}: {e}")
+
+    return pd.DataFrame(results)
+
+if __name__ == "__main__":
+    df = get_figis_by_tickers(TICKERS)
+    if df.empty:
+        print("Не найдено ни одного тикера")
+    else:
+        print(df)
