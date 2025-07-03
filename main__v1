@@ -15,7 +15,7 @@ TELEGRAM_TOKEN = ""
 CHAT_ID = -
 
 # 🔍 Тикеры
-TICKERS = ["DDD", "AMD", "APA", "AFRM", "AA", "BABA", "GOOGL", "AMZN", "AAL", "APP", "AAPL", "AMAT", "BA", "BYND", "BILI", "AI", "COF", "CAT", "CHGG", "CHWY", "CNK", "CLF", "CCL", "CSCO", "CLSK", "NET", "COIN", "COTY", "CPNG", "DHI", "DLO", "DDOG", "PLAY", "DVN", "APPS","DOCU", "DASH", "YDEX", "U", "TSLA"]
+TICKERS = ["AAPL", "MSFT", "TSLA", "GOOG", "AMZN", "NVDA", "META", "AMD", "INTC", "NFLX","BA", "DIS", "JPM", "WMT", "PEP", "KO", "CVX", "XOM", "BABA", "PFE","MRNA", "NKE", "T", "VZ", "CRM", "ADBE", "ORCL", "CSCO", "QCOM", "GE","UBER", "LYFT", "SQ", "PYPL", "SHOP", "SNAP", "ZM", "RIVN", "PLTR", "SOFI","F", "GM", "LCID", "TSM", "BIDU", "JD", "TLRY", "CVNA", "WBD", "EBAY, "DDD", "AMD", "APA", "AFRM", "AA", "BABA", "GOOGL", "AMZN", "AAL", "APP", "AAPL", "AMAT", "BA", "BYND", "BILI", "AI", "COF", "CAT", "CHGG", "CHWY", "CNK", "CLF", "CCL", "CSCO", "CLSK", "NET", "COIN", "COTY", "CPNG", "DHI", "DLO", "DDOG", "PLAY", "DVN", "APPS","DOCU", "DASH", "YDEX", "U", "TSLA"]
 
 # Интервалы
 INTERVALS = {
